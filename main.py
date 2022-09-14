@@ -13,7 +13,7 @@ headers = {
 
 wb = Workbook()
 ws = wb.active
-ws.append(['Название каталога','Ссылка на каталог','Количество','Ссылки на товар'])
+ws.append(['Название каталога','Ссылка на каталог','Количество','Из 10','Ссылки на товар'])
 
 
 async def get_data():
@@ -37,7 +37,7 @@ async def get_data():
                                             for page_data in pages_data:
                                                 catalog_name = catalog_data['name']+'/'+child_name+sub_catalog_name+'/'+name_sub_sub_catalog+'/'+page_data[3]
                                                 catalog_url = 'https://www.wildberries.ru'+child['url']+f'?page=1&xsubject={page_data[2]}'
-                                                ws.append([catalog_name,catalog_url,page_data[0],page_data[1]])
+                                                ws.append([catalog_name,catalog_url,page_data[0],page_data[4]]+page_data[1])
                                             wb.save('Data.xlsx')     
                                 except:
                                     try:
@@ -48,7 +48,7 @@ async def get_data():
                                             for page_data in pages_data:
                                                 catalog_name = catalog_data['name']+'/'+child_name+sub_catalog_name+'/'+page_data[3]
                                                 catalog_url = 'https://www.wildberries.ru'+child['url']+f'?page=1&xsubject={page_data[2]}'
-                                                ws.append([catalog_name,catalog_url,page_data[0],page_data[1]])
+                                                ws.append([catalog_name,catalog_url,page_data[0],page_data[4]]+page_data[1])
                                             wb.save('Data.xlsx')
                                             # print('Done')
                                     except:
@@ -64,7 +64,7 @@ async def get_data():
                                     for page_data in pages_data:
                                         catalog_url = 'https://www.wildberries.ru'+child['url']+f'?page=1&xsubject={page_data[2]}'
                                         catalog_name = catalog_data['name']+'/'+child_name+sub_catalog_name+'/'+page_data[3]
-                                        ws.append([catalog_name,catalog_url,page_data[0],page_data[1]])
+                                        ws.append([catalog_name,catalog_url,page_data[0],page_data[4]]+page_data[1])
                                     wb.save('Data.xlsx') 
                                     # print('Done')
                             except:
@@ -85,6 +85,7 @@ async def get_products(session, query, shard, retry=5):
                         tasks = []
                         result_sum = []
                         necessary_urls = []
+                        first_10_products = []
                         filter_id = item['id'] # ID фильтра
                         filter_name = item['name'] # Название фильтра 
                         link = f'https://catalog.wb.ru/catalog/{shard}/catalog?appType=1&couponsGeo=12,3,18,15,21&curr=rub&dest=-1029256,-102269,-2162196,-1275551&emp=0&lang=ru&locale=ru&page=1&pricemarginCoeff=1.0&reg=0&regions=68,64,83,4,38,80,33,70,82,86,75,30,69,22,66,31,40,1,48,71&sort=popular&spp=0&{query}&xsubject={filter_id}'
@@ -96,11 +97,14 @@ async def get_products(session, query, shard, retry=5):
                                     task = asyncio.create_task(get_product_data(session,id))
                                     tasks.append(task)
                                 products_data = await asyncio.gather(*tasks) 
-                                for product_data in products_data:
-                                    result_sum.append(product_data[0])
+                                for i,product_data in enumerate(products_data):
+                                    if i < 10:
+                                        first_10_products.append(product_data[0])
+                                    
+                                    result_sum.append(product_data[0]) # 0 или 1
                                     if product_data[0] == 1:
-                                        necessary_urls.append(product_data[1])
-                                data.append([f'{sum(result_sum)}/{len(result_sum)}', ','.join(necessary_urls),filter_id,filter_name])
+                                        necessary_urls.append(product_data[1]) # Добавление ссылки на товар
+                                data.append([f'{sum(result_sum)}/{len(result_sum)}', necessary_urls,filter_id,filter_name,f'{sum(first_10_products)}/{len(first_10_products)}'])
                         except Exception as ex:
                             print(ex)
                     return data
@@ -113,15 +117,15 @@ async def get_products(session, query, shard, retry=5):
             raise
     return False
 
-async def get_product_data(session,id): # Здесь мы возращаем 1 вместе со ссылкой, если страна Индия, если нет то 0
+async def get_product_data(session,id): # Здесь мы возращаем 1 вместе со ссылкой, если страна Турция, если нет то 0
     async with session.get(f'https://wbx-content-v2.wbstatic.net/ru/{id}.json',headers=headers) as response:
         data = await response.json()
         link = f'https://www.wildberries.ru/catalog/{id}/detail.aspx?targetUrl=GP'
         try:
             for country in data['options']:
                 if country['name'] == 'Страна производства':
-                    if country['value'] == 'Индия':
-                        return [1,link] 
+                    if country['value'] == 'Турция':
+                        return [1,link]  # Ссылка на товар
                     else:
                         return [0]
         except:
