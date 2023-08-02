@@ -1,140 +1,141 @@
 import asyncio
-import json
 
+import jmespath
 import aiohttp
-from openpyxl import Workbook
+import pandas as pd
 from fake_useragent import UserAgent
+from urllib.parse import quote, unquote
 
 ua = UserAgent()
 
-headers = {
-    'user-agent':f'{ua.random}'
-}
+def read_xlsx():
+    df = pd.read_excel("data 5.xlsx")
+    request_name = df.iloc[:, 0].to_list()
+    return request_name, df
 
-wb = Workbook()
-ws = wb.active
-ws.append(['Название каталога','Ссылка на каталог','Количество','Из 10','Ссылки на товар'])
+def get_basket_url(e):
+    if 0 <= e <= 143:
+        return "//basket-01.wb.ru/"
+    elif 144 <= e <= 287:
+        return "//basket-02.wb.ru/"
+    elif 288 <= e <= 431:
+        return "//basket-03.wb.ru/"
+    elif 432 <= e <= 719:
+        return "//basket-04.wb.ru/"
+    elif 720 <= e <= 1007:
+        return "//basket-05.wb.ru/"
+    elif 1008 <= e <= 1061:
+        return "//basket-06.wb.ru/"
+    elif 1062 <= e <= 1115:
+        return "//basket-07.wb.ru/"
+    elif 1116 <= e <= 1169:
+        return "//basket-08.wb.ru/"
+    elif 1170 <= e <= 1313:
+        return "//basket-09.wb.ru/"
+    elif 1314 <= e <= 1601:
+        return "//basket-10.wb.ru/"
+    elif 1602 <= e <= 1655:
+        return "//basket-11.wb.ru/"
+    elif 1656 <= e <= 1919:
+        return "//basket-12.wb.ru/"
+    else:
+        return "//basket-13.wb.ru/"
 
-
-async def get_data():
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get('https://www.wildberries.ru/webapi/menu/main-menu-ru-ru.json', headers=headers) as response:
-                catalogs_data = await response.json()
-                for catalog_data in catalogs_data:
-                    for child in catalog_data['childs']: # Забираем query, chard и вызываем get_products для получения данных
-                        child_name = child['name']
-                        try:
-                            for sub_catalog in child['childs']: # Если есть ещё один подкаталог
-                                sub_catalog_name = '/'+sub_catalog['name']
-                                try:
-                                    for sub_sub_catalog in sub_catalog['childs']:
-                                        name_sub_sub_catalog = sub_sub_catalog['name']
-                                        query = sub_sub_catalog['query']
-                                        shard = sub_sub_catalog['shard']
-                                        pages_data = await get_products(session,query, shard) # Get products data
-                                        if pages_data:
-                                            for page_data in pages_data:
-                                                catalog_name = catalog_data['name']+'/'+child_name+sub_catalog_name+'/'+name_sub_sub_catalog+'/'+page_data[3]
-                                                catalog_url = 'https://www.wildberries.ru'+child['url']+f'?page=1&xsubject={page_data[2]}'
-                                                ws.append([catalog_name,catalog_url,page_data[0],page_data[4]]+page_data[1])
-                                            wb.save('Data.xlsx')     
-                                except:
-                                    try:
-                                        query = sub_catalog['query']
-                                        shard = sub_catalog['shard']
-                                        pages_data = await get_products(session,query, shard) # Get products data
-                                        if pages_data:
-                                            for page_data in pages_data:
-                                                catalog_name = catalog_data['name']+'/'+child_name+sub_catalog_name+'/'+page_data[3]
-                                                catalog_url = 'https://www.wildberries.ru'+child['url']+f'?page=1&xsubject={page_data[2]}'
-                                                ws.append([catalog_name,catalog_url,page_data[0],page_data[4]]+page_data[1])
-                                            wb.save('Data.xlsx')
-                                            # print('Done')
-                                    except:
-                                        continue
-
-                        except:
-                            try:
-                                sub_catalog_name=''
-                                query = child['query']
-                                shard = child['shard']
-                                pages_data = await get_products(session, query,shard)
-                                if pages_data:
-                                    for page_data in pages_data:
-                                        catalog_url = 'https://www.wildberries.ru'+child['url']+f'?page=1&xsubject={page_data[2]}'
-                                        catalog_name = catalog_data['name']+'/'+child_name+sub_catalog_name+'/'+page_data[3]
-                                        ws.append([catalog_name,catalog_url,page_data[0],page_data[4]]+page_data[1])
-                                    wb.save('Data.xlsx') 
-                                    # print('Done')
-                            except:
-                                continue
-        except Exception as ex:
-            print('Ошибка',ex)
-
-
-async def get_products(session, query, shard, retry=5):
-    url = f'https://catalog.wb.ru/catalog/{shard}/v4/filters?appType=1&couponsGeo=12,3,18,15,21&curr=rub&dest=-1029256,-102269,-2162196,-1275551&emp=0&lang=ru&locale=ru&pricemarginCoeff=1.0&reg=0&regions=68,64,83,4,38,80,33,70,82,86,75,30,69,22,66,31,40,1,48,71&spp=0&{query}'
+async def get_data_from_id(country, json):
     try:
-        async with session.get(url, headers=headers) as response:
-            json_data =  json.loads(await response.read())
-            for filter in json_data['data']['filters']:
-                if filter['name'] == 'Категория':
-                    data = []
-                    for item in filter['items']:
-                        tasks = []
-                        result_sum = []
-                        necessary_urls = []
-                        first_10_products = []
-                        filter_id = item['id'] # ID фильтра
-                        filter_name = item['name'] # Название фильтра 
-                        link = f'https://catalog.wb.ru/catalog/{shard}/catalog?appType=1&couponsGeo=12,3,18,15,21&curr=rub&dest=-1029256,-102269,-2162196,-1275551&emp=0&lang=ru&locale=ru&page=1&pricemarginCoeff=1.0&reg=0&regions=68,64,83,4,38,80,33,70,82,86,75,30,69,22,66,31,40,1,48,71&sort=popular&spp=0&{query}&xsubject={filter_id}'
-                        try:
-                            async with session.get(link,headers=headers) as r: # Проходимся по всем карточкам и возращаем нужные данные
-                                json_catalog_data = json.loads(await r.read())
-                                for product in json_catalog_data['data']['products']:
-                                    id = product['id']
-                                    task = asyncio.create_task(get_product_data(session,id))
-                                    tasks.append(task)
-                                products_data = await asyncio.gather(*tasks) 
-                                for i,product_data in enumerate(products_data):
-                                    if i < 10:
-                                        first_10_products.append(product_data[0])
-                                    
-                                    result_sum.append(product_data[0]) # 0 или 1
-                                    if product_data[0] == 1:
-                                        necessary_urls.append(product_data[1]) # Добавление ссылки на товар
-                                data.append([f'{sum(result_sum)}/{len(result_sum)}', necessary_urls,filter_id,filter_name,f'{sum(first_10_products)}/{len(first_10_products)}'])
-                        except Exception as ex:
-                            print(ex)
-                    return data
-    except Exception as ex:
-        if retry:
-            print(f'[INFO] retry={retry} => {url}')
-            print(ex)
-            await get_products(session, query, shard, retry=(retry-1))
+        for json_basket_item in json['options']:
+            if json_basket_item['value'] == country:
+                return 1
+    except:
+        pass
+    return 0
+
+async def get_data(query):
+    try:
+        if isinstance(query,str):
+            query = quote(query)
+            link = f'https://www.wildberries.ru/catalog/0/search.aspx?search={query}'
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+    f'https://search.wb.ru/exactmatch/ru/common/v4/search?TestGroup=test_1&TestID=155&appType=1&curr=rub&dest=-1252424&query={query}&regions=80,38,83,4,64,33,68,70,30,40,86,75,69,1,66,110,48,22,31,71,114&resultset=catalog&sort=popular&spp=31&suppressSpellcheck=false&uclusters=9',headers={"User-Agent": ua.random}) as response:
+                    json_search=await response.json(content_type=None)
+                    ids = jmespath.search('data.products[:30].id', json_search)
+                    try:
+                        brandId = jmespath.search('data.products[0].brandId', json_search)
+                        kindId = jmespath.search('data.products[0].kindId', json_search)
+                        subjectId = jmespath.search('data.products[0].subjectId', json_search)
+  
+                        params = {
+                                'subject': subjectId,
+                                'kind': kindId,
+                                'brand': brandId,
+                            }
+                        async with session.get(f'https://www.wildberries.ru/webapi/product/{ids[0]}/data', params=params, headers={"User-Agent": ua.random}) as r:
+                            json = await r.json(content_type=None)
+                            category = '/'.join(jmespath.search('value.data.sitePath[*].name', json))
+                    except:
+                        category = ''
+
+                    first_product_price = str(jmespath.search('data.products[0].salePriceU', json_search))[:-2]
+
+
+                    number_of_china = 0
+                    for id in ids:
+                        part = str(id)[:-3]
+                        vol = int(part[:-2])
+                        async with session.get(f'https:{get_basket_url(vol)}vol{vol}/part{part}/{id}/info/ru/card.json', headers={"User-Agent": ua.random}) as r:
+                            json_basket = await r.json(content_type=None)
+
+                            number_of_china += await get_data_from_id('Китай', json_basket)
+                    data_china = f'{number_of_china}/30'
         else:
-            raise
-    return False
+            data_china = ''
+            category = ''
+            link = f'https://www.wildberries.ru/catalog/0/search.aspx?search={query}'
+            first_product_price=''
 
-async def get_product_data(session,id): # Здесь мы возращаем 1 вместе со ссылкой, если страна Турция, если нет то 0
-    async with session.get(f'https://wbx-content-v2.wbstatic.net/ru/{id}.json',headers=headers) as response:
-        data = await response.json()
-        link = f'https://www.wildberries.ru/catalog/{id}/detail.aspx?targetUrl=GP'
-        try:
-            for country in data['options']:
-                if country['name'] == 'Страна производства':
-                    if country['value'] == 'Турция':
-                        return [1,link]  # Ссылка на товар
-                    else:
-                        return [0]
-        except:
-            pass
-    return [0]
+    except Exception as ex:
+        data_china = ''
+        category = ''
+        link = f'https://www.wildberries.ru/catalog/0/search.aspx?search={query}'
+        first_product_price = ''
+    return data_china, link, first_product_price, category
 
 
-def main():
-    asyncio.get_event_loop().run_until_complete(get_data())
-   
-if __name__ == '__main__':
-    main()
+async def main():
+    queries, df = read_xlsx()
+    data = []
+    tasks = []  # Список для хранения задач get_data()
+    for query in queries:
+        task = asyncio.create_task(get_data(query))  # Создание задачи get_data()
+        tasks.append(task)
+        if len(tasks) == 1000:
+            results = await asyncio.gather(*tasks)
+            for result in results:
+                data.append(result)
+            tasks = []
+    else:
+        results = await asyncio.gather(*tasks)
+        for result in results:
+            data.append(result)
+
+        
+    # Обработка данных и сохранение результата в файл
+    count_china = [item[0] for item in data]
+    link = [item[1] for item in data]
+    first_price = [item[2] for item in data]
+    category = [item[3] for item in data]
+
+    df['Ссылка на запрос'] = link
+    df['Количество китайских товаров в выдаче'] = count_china
+    df['Цена топ-1 товара по запросу'] = first_price
+    df['Категория'] = category
+    df.to_excel("result.xlsx", index=False)
+
+    
+if __name__ == "__main__":
+    asyncio.run(main())
+        
+        
+    
+    
