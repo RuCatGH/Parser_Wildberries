@@ -5,13 +5,15 @@ import aiohttp
 import pandas as pd
 from fake_useragent import UserAgent
 from urllib.parse import quote, unquote
-
+import time
 ua = UserAgent()
 
+
 def read_xlsx():
-    df = pd.read_excel("data 5.xlsx")
+    df = pd.read_excel("data.xlsx").head(1000)
     request_name = df.iloc[:, 0].to_list()
     return request_name, df
+
 
 def get_basket_url(e):
     if 0 <= e <= 143:
@@ -38,8 +40,13 @@ def get_basket_url(e):
         return "//basket-11.wb.ru/"
     elif 1656 <= e <= 1919:
         return "//basket-12.wb.ru/"
-    else:
+    elif 1920 <= e <= 2045:
         return "//basket-13.wb.ru/"
+    elif 2046 <= e <= 2189:
+        return "//basket-14.wb.ru/"
+    else:
+        return "//basket-15.wb.ru/"
+
 
 async def get_data_from_id(country, json):
     try:
@@ -50,34 +57,40 @@ async def get_data_from_id(country, json):
         pass
     return 0
 
+
 async def get_data(query):
     try:
-        if isinstance(query,str):
+        if isinstance(query, str):
             query = quote(query)
             link = f'https://www.wildberries.ru/catalog/0/search.aspx?search={query}'
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-    f'https://search.wb.ru/exactmatch/ru/common/v4/search?TestGroup=test_1&TestID=155&appType=1&curr=rub&dest=-1252424&query={query}&regions=80,38,83,4,64,33,68,70,30,40,86,75,69,1,66,110,48,22,31,71,114&resultset=catalog&sort=popular&spp=31&suppressSpellcheck=false&uclusters=9',headers={"User-Agent": ua.random}) as response:
-                    json_search=await response.json(content_type=None)
+                        f'https://search.wb.ru/exactmatch/ru/common/v4/search?TestGroup=test_1&TestID=155&appType=1&curr=rub&dest=-1252424&query={query}&resultset=catalog&sort=popular&spp=31&suppressSpellcheck=false', headers={"User-Agent": ua.random}) as response:
+                    json_search = await response.json(content_type=None)
                     ids = jmespath.search('data.products[:30].id', json_search)
                     try:
-                        brandId = jmespath.search('data.products[0].brandId', json_search)
-                        kindId = jmespath.search('data.products[0].kindId', json_search)
-                        subjectId = jmespath.search('data.products[0].subjectId', json_search)
-  
+                        brandId = jmespath.search(
+                            'data.products[0].brandId', json_search)
+                        kindId = jmespath.search(
+                            'data.products[0].kindId', json_search)
+                        subjectId = jmespath.search(
+                            'data.products[0].subjectId', json_search)
+
                         params = {
-                                'subject': subjectId,
-                                'kind': kindId,
-                                'brand': brandId,
-                            }
+                            'subject': subjectId,
+                            'kind': kindId,
+                            'brand': brandId,
+                        }
+
                         async with session.get(f'https://www.wildberries.ru/webapi/product/{ids[0]}/data', params=params, headers={"User-Agent": ua.random}) as r:
                             json = await r.json(content_type=None)
-                            category = '/'.join(jmespath.search('value.data.sitePath[*].name', json))
+                            category = '/'.join(jmespath.search(
+                                'value.data.sitePath[*].name', json))
                     except:
                         category = ''
 
-                    first_product_price = str(jmespath.search('data.products[0].salePriceU', json_search))[:-2]
-
+                    first_product_price = str(jmespath.search(
+                        'data.products[0].salePriceU', json_search))[:-2]
 
                     number_of_china = 0
                     for id in ids:
@@ -92,9 +105,9 @@ async def get_data(query):
             data_china = ''
             category = ''
             link = f'https://www.wildberries.ru/catalog/0/search.aspx?search={query}'
-            first_product_price=''
-
+            first_product_price = ''
     except Exception as ex:
+        print(ex)
         data_china = ''
         category = ''
         link = f'https://www.wildberries.ru/catalog/0/search.aspx?search={query}'
@@ -106,10 +119,12 @@ async def main():
     queries, df = read_xlsx()
     data = []
     tasks = []  # Список для хранения задач get_data()
+    st = time.time()
     for query in queries:
-        task = asyncio.create_task(get_data(query))  # Создание задачи get_data()
+        # Создание задачи get_data()
+        task = asyncio.create_task(get_data(query))
         tasks.append(task)
-        if len(tasks) == 1000:
+        if len(tasks) == 100:
             results = await asyncio.gather(*tasks)
             for result in results:
                 data.append(result)
@@ -118,8 +133,7 @@ async def main():
         results = await asyncio.gather(*tasks)
         for result in results:
             data.append(result)
-
-        
+    print(time.time() - st)
     # Обработка данных и сохранение результата в файл
     count_china = [item[0] for item in data]
     link = [item[1] for item in data]
@@ -132,10 +146,6 @@ async def main():
     df['Категория'] = category
     df.to_excel("result.xlsx", index=False)
 
-    
+
 if __name__ == "__main__":
     asyncio.run(main())
-        
-        
-    
-    
